@@ -6,6 +6,7 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, confusion_matrix
@@ -16,8 +17,7 @@ from metrics.Metrics import entropy
 class CNN:
 
     def __init__(self, num_classes, image_size, folds, epochs, directory):
-
-        print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+        mpl.use('TkAgg')
 
         self.num_classes = num_classes
         self.image_size = image_size
@@ -28,31 +28,50 @@ class CNN:
 
     def define_and_compile_model(self):
         # Define model
-        model = tf.keras.models.Sequential([
-            tf.keras.layers.Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=self.image_size),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
-            tf.keras.layers.Dropout(0.25),
+        # model = tf.keras.models.Sequential([
+        #     tf.keras.layers.Conv2D(8, kernel_size=(3, 3), activation='relu', input_shape=self.image_size),
+        #     tf.keras.layers.BatchNormalization(),
+        #     tf.keras.layers.Dropout(0.25),
+        #
+        #     tf.keras.layers.Conv2D(16, kernel_size=(3, 3), activation='relu'),
+        #     tf.keras.layers.BatchNormalization(),
+        #     tf.keras.layers.Dropout(0.25),
+        #
+        #     tf.keras.layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
+        #     tf.keras.layers.BatchNormalization(),
+        #     tf.keras.layers.Dropout(0.25),
+        #
+        #     tf.keras.layers.Conv2D(64, kernel_size=(3, 3), activation='relu'),
+        #     tf.keras.layers.BatchNormalization(),
+        #     tf.keras.layers.Dropout(0.25),
+        #
+        #     tf.keras.layers.Conv2D(128, kernel_size=(3, 3), activation='relu'),
+        #     tf.keras.layers.BatchNormalization(),
+        #     tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+        #     tf.keras.layers.Dropout(0.25),
+        #
+        #     tf.keras.layers.Flatten(),
+        #     tf.keras.layers.Dense(128, activation='relu'),
+        #     tf.keras.layers.Dropout(0.25),
+        #     tf.keras.layers.Dense(32, activation='relu'),
+        #     tf.keras.layers.Dropout(0.25),
+        #     tf.keras.layers.Dense(self.num_classes, activation='softmax')
+        # ])
+        base_model = tf.keras.applications.InceptionResNetV2(include_top=False, pooling='avg', weights='imagenet',
+                                              input_shape=(100, 100, 3))
+        base_model.trainable = True
 
-            tf.keras.layers.Conv2D(64, kernel_size=(3, 3), activation='relu'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
-            tf.keras.layers.Dropout(0.25),
+        model = tf.keras.models.Sequential()
+        model.add(base_model)
+        model.add(tf.keras.layers.Flatten())
+        model.add(tf.keras.layers.Dense(128, activation='relu'))
+        model.add(tf.keras.layers.Dropout(0.25))
+        model.add(tf.keras.layers.Dense(32, activation='relu'))
+        model.add(tf.keras.layers.Dropout(0.25))
+        model.add(tf.keras.layers.Dense(self.num_classes, activation='softmax'))
 
-            tf.keras.layers.Conv2D(128, kernel_size=(3, 3), activation='relu'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
-            tf.keras.layers.Dropout(0.25),
-
-            tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(256, activation='relu'),
-            tf.keras.layers.Dropout(0.25),
-            tf.keras.layers.Dense(64, activation='relu'),
-            tf.keras.layers.Dropout(0.25),
-            tf.keras.layers.Dense(self.num_classes, activation='softmax')
-        ])
-
-        model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer='sgd', loss="sparse_categorical_crossentropy", metrics=['accuracy'])
+        print(model.summary())
 
         return model
 
@@ -160,7 +179,7 @@ class CNN:
 
         # write the metrics to a CSV file
         with open(f"results/{self.dir}/fold_metrics.csv", 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
+            writer = csv.writer(csvfile, delimiter=';')
             writer.writerow(['Fold', 'Accuracy', 'Entropy', 'F1-score (macro)', 'Precision (macro)', 'Recall (macro)',
                              'F1-score (weighted)', 'Precision (weighted)', 'Recall (weighted)'])
             for i, fold in enumerate(fold_metrics):

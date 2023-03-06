@@ -15,14 +15,18 @@ class Filter:
         self.mp_drawing_styles = mp.solutions.drawing_styles
         self.mp_face_mesh = mp.solutions.face_mesh
 
-        # Headset mask applied to images. IMREAD_UNCHANGED is applied so it also reads the alpha channel.
+        # Headset mask applied to image. IMREAD_UNCHANGED is applied so it also reads the alpha channel.
         self.headset_image = cv2.imread("assets/images/headset/headset.png", cv2.IMREAD_UNCHANGED)
         self.headset_width, self.headset_height, _ = self.headset_image.shape
+
+        # Face mask applied to image. IMREAD_UNCHANGED is applied so it also reads the alpha channel.
+        self.face_mask_image = cv2.imread("assets/images/face_mask/face_mask.png", cv2.IMREAD_UNCHANGED)
+        self.face_mask__width, self.face_mask__height, _ = self.face_mask_image.shape
 
         # Increment size of the headset by this percentage.
         self.increment_size = 0.0
 
-    def apply_filter_folder(self, folder_path, output_path):
+    def apply_filter_vr_folder(self, folder_path, output_path):
         files = glob.glob(folder_path + "*.jpg")
 
         with self.mp_face_mesh.FaceMesh(
@@ -34,14 +38,14 @@ class Filter:
             failed_image_names = []
             for file in files:
                 self.headset_width, self.headset_height, _ = self.headset_image.shape
-                success, image_path = self.apply_filter_image(file, output_path, face_mesh)
+                success, image_path = self.apply_filter_image_vr(file, output_path, face_mesh)
                 if not success:
                     failed += 1
                     failed_image_names.append(image_path)
 
             return failed_image_names
 
-    def apply_filter_image(self, image_path, output_path, face_mesh):
+    def apply_filter_image_vr(self, image_path, output_path, face_mesh):
         self.headset_width, self.headset_height, _ = self.headset_image.shape
 
         # Read image.
@@ -134,6 +138,98 @@ class Filter:
             # Return fail.
             return False, os.path.basename(image_path)
         pass
+
+    def apply_filter_face_mask_folder(self, folder_path, output_path):
+        files = glob.glob(folder_path + "*.jpg")
+
+        with self.mp_face_mesh.FaceMesh(
+                max_num_faces=1,
+                refine_landmarks=False,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5) as face_mesh:
+            failed = 0
+            failed_image_names = []
+            for file in files:
+                self.headset_width, self.headset_height, _ = self.headset_image.shape
+                success, image_path = self.apply_filter_image_face_mask(file, output_path, face_mesh)
+                if not success:
+                    failed += 1
+                    failed_image_names.append(image_path)
+
+            return failed_image_names
+
+    def apply_filter_image_face_mask(self, image_path, output_path, face_mesh):
+        self.face_mask__width, self.face_mask__height, _ = self.face_mask_image.shape
+
+        # Read image.
+        image = cv2.imread(image_path)
+        width, height, _ = image.shape
+
+        # Initialize MediaPipe.
+
+        # To improve performance, optionally mark the image as not writeable to pass by reference.
+        image.flags.writeable = False
+
+        # Process image.
+        results = face_mesh.process(image)
+
+        # If a face bas been detected...
+        if results.multi_face_landmarks:
+            # Print face_landmarks.
+            # for face_landmarks in results.multi_face_landmarks:
+            #     self.mp_drawing.draw_landmarks(
+            #         image=image,
+            #         landmark_list=face_landmarks,
+            #         connections=self.mp_face_mesh.FACEMESH_TESSELATION,
+            #         landmark_drawing_spec=None,
+            #         connection_drawing_spec=self.mp_drawing_styles
+            #         .get_default_face_mesh_tesselation_style())
+
+            # Get sides of face.
+            landmark_face_left = results.multi_face_landmarks[0].landmark[132]
+            landmark_face_right = results.multi_face_landmarks[0].landmark[361]
+            # Calculate face coordinates on the original image.
+            coord_face_left_x = int(landmark_face_left.x * height)
+            coord_face_left_y = int(landmark_face_left.y * width)
+            coord_face_right_x = int(landmark_face_right.x * height)
+            coord_face_right_y = int(landmark_face_right.y * width)
+
+            # Get bottom of nose.
+            landmark_nose_left = results.multi_face_landmarks[0].landmark[15]
+            # Calculate nose coordinates on the original image.
+            coord_nose_left_x = int(landmark_nose_left.x * height)
+            coord_nose_left_y = int(landmark_nose_left.y * width)
+
+            # Get angle of mouth and desired width
+            # for the mask.
+            angle = math.atan2(coord_face_right_y - coord_face_left_y, coord_face_right_x - coord_face_left_x) * 180 / math.pi
+            desired_width = math.dist([coord_face_left_x, coord_face_left_y], [coord_face_right_x, coord_face_right_y])
+
+            # Scale and rotate image.
+            rotated_and_scaled = self.rotate_and_scale(self.face_mask_image,
+                                                       (desired_width / self.face_mask__height) + self.increment_size,
+                                                       -int(angle))
+            self.face_mask__height, self.face_mask__width, _ = rotated_and_scaled.shape
+
+            # Add alpha channel to original image.
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2RGBA)
+
+            # Locate mask on image.
+            img_overlay_rgba = np.array(rotated_and_scaled)
+            alpha_mask = img_overlay_rgba[:, :, 3] / 255.0
+            self.overlay_image_alpha(image, rotated_and_scaled, int(coord_nose_left_x - (self.face_mask__width / 2)),
+                                     int(coord_nose_left_y - (self.face_mask__height / 2)), alpha_mask)
+
+            # Write image.
+            cv2.imwrite(output_path + os.path.basename(image_path), image)
+
+            # Return success.
+            return True, os.path.basename(image_path)
+        else:
+            # Return fail.
+            return False, os.path.basename(image_path)
+        pass
+
 
     def rotate_and_scale(self, img, scale_factor=0.5, degrees=30):
         # Get image shape. Note: Numpy uses (y,x) convention but most OpenCV functions use (x,y).

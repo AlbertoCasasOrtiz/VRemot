@@ -242,3 +242,4 @@ cython_debug/
 results/
 assets/dataset/
 assets/raw_dataset/
+*.h5
